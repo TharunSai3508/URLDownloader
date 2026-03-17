@@ -6,22 +6,33 @@
     android:viewportHeight="108">
 
     <!--
-        Download icon centered in 108×108 canvas (safe zone: 18–90).
-        Design: thick downward arrow (shaft + chevron) + inbox tray below.
+        Bold download icon — safe zone 18..90.
+        Parts:
+          1. Arrow  — shaft (x 46–62, y 12–48) + chevron head (30,44)→(54,68)→(78,44)
+          2. Tray   — U-shape: sides (x 18–28 & 80–90) + base bar (y 78–86)
+          3. Link   — two small pills at the bottom to suggest a URL chain
     -->
 
-    <!-- Arrow: combined shaft (48–60 wide, y 16–52) + chevron head pointing down (tip y=70) -->
+    <!-- 1 · Download arrow (shaft + chevron, single filled path) -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M48,16 L60,16 L60,50 L72,50 L54,70 L36,50 L48,50 Z" />
+        android:pathData="M46,12 L62,12 L62,44 L78,44 L54,68 L30,44 L46,44 Z" />
 
-    <!-- Tray: U-shape receiver
-         - Left side  : x 22–30, y 76–88
-         - Bottom bar : x 22–86, y 80–88
-         - Right side : x 78–86, y 76–88
-    -->
+    <!-- 2 · Receiver tray (U-shape: left side + base + right side) -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M22,76 L30,76 L30,80 L78,80 L78,76 L86,76 L86,88 L22,88 Z" />
+        android:pathData="M18,62 L28,62 L28,76 L80,76 L80,62 L90,62 L90,84 L18,84 Z" />
+
+    <!-- 3 · URL chain link hint — two small semi-transparent pills -->
+    <path
+        android:fillColor="#BFFFFFFF"
+        android:pathData="M22,90 A4,4 0 0 1 26,86 L44,86 A4,4 0 0 1 48,90 A4,4 0 0 1 44,94 L26,94 A4,4 0 0 1 22,90 Z" />
+    <path
+        android:fillColor="#BFFFFFFF"
+        android:pathData="M60,90 A4,4 0 0 1 64,86 L82,86 A4,4 0 0 1 86,90 A4,4 0 0 1 82,94 L64,94 A4,4 0 0 1 60,90 Z" />
+    <!-- Connector between the two link pills -->
+    <path
+        android:fillColor="#BFFFFFFF"
+        android:pathData="M48,88 L60,88 L60,92 L48,92 Z" />
 
 </vector>

@@ -14,122 +14,152 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
 
-// Brand colors used in the splash (match the icon gradient)
-private val SplashPurple = Color(0xFF7C4DFF)
-private val SplashBlue   = Color(0xFF3D5AFE)
-private val SplashCyan   = Color(0xFF00BCD4)
-private val SplashTeal   = Color(0xFF1DE9B6)
+// ── Brand palette ─────────────────────────────────────────────────────────────
+private val Pink   = Color(0xFFFF006E)
+private val Violet = Color(0xFF9500FF)
+private val Blue   = Color(0xFF3D5AFE)
+private val Cyan   = Color(0xFF00E5FF)
+private val Teal   = Color(0xFF1DE9B6)
+
+// ── Pre-computed particle data (constant across recompositions) ───────────────
+private data class Particle(
+    val x0: Float,       // initial fractional x  0..1
+    val y0: Float,       // initial fractional y  0..1
+    val vx: Float,       // x velocity  units-per-ms (fractional)
+    val vy: Float,       // y velocity  units-per-ms (fractional), mostly upward
+    val radiusDp: Float,
+    val baseAlpha: Float,
+    val color: Color,
+    val phase: Float     // phase offset for alpha pulsing
+)
+
+private val PARTICLE_COLORS = listOf(
+    Color(0xFFFF80AB), Cyan, Teal, Color(0xFFB47CFF), Color(0xFFFFFFFF), Blue
+)
+
+private val PARTICLES: List<Particle> = run {
+    val rng = Random(0xC0FFEE)
+    List(22) { i ->
+        Particle(
+            x0        = rng.nextFloat(),
+            y0        = rng.nextFloat(),
+            vx        = (rng.nextFloat() - 0.5f) * 0.000025f,
+            vy        = -(rng.nextFloat() * 0.000022f + 0.000008f),
+            radiusDp  = rng.nextFloat() * 4f + 1.5f,
+            baseAlpha = rng.nextFloat() * 0.28f + 0.06f,
+            color     = PARTICLE_COLORS[i % PARTICLE_COLORS.size],
+            phase     = rng.nextFloat() * (2f * PI.toFloat())
+        )
+    }
+}
 
 @Composable
 fun SplashScreen() {
-    val inf = rememberInfiniteTransition(label = "splash_inf")
+    val inf = rememberInfiniteTransition(label = "splash")
 
-    // ── Animated background gradient colours ────────────────────────────────
-    val bg1 by inf.animateColor(
-        initialValue = SplashPurple,
-        targetValue  = Color(0xFF1A237E),
-        animationSpec = infiniteRepeatable(tween(3200, easing = LinearEasing), RepeatMode.Reverse),
-        label = "bg1"
-    )
-    val bg2 by inf.animateColor(
-        initialValue = SplashCyan,
-        targetValue  = Color(0xFF9C27B0),
-        animationSpec = infiniteRepeatable(tween(4100, 600, LinearEasing), RepeatMode.Reverse),
-        label = "bg2"
-    )
+    // ── Animated background gradient ─────────────────────────────────────────
+    val bg1 by inf.animateColor(Pink,  Color(0xFF1A0040),
+        infiniteRepeatable(tween(3400, easing = LinearEasing), RepeatMode.Reverse), "bg1")
+    val bg2 by inf.animateColor(Cyan,  Color(0xFF6A00AA),
+        infiniteRepeatable(tween(4200, 700, LinearEasing), RepeatMode.Reverse), "bg2")
 
-    // ── Pulsing ripple rings (3 rings with offset phases) ───────────────────
-    val ring1 by inf.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart), label = "r1")
-    val ring2 by inf.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(1800, 600, LinearEasing), RepeatMode.Restart), label = "r2")
-    val ring3 by inf.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(1800, 1200, LinearEasing), RepeatMode.Restart), label = "r3")
+    // ── Ripple rings ──────────────────────────────────────────────────────────
+    val r1 by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(2000, easing = LinearEasing), RepeatMode.Restart), "r1")
+    val r2 by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(2000, 667, LinearEasing), RepeatMode.Restart), "r2")
+    val r3 by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(2000, 1334, LinearEasing), RepeatMode.Restart), "r3")
 
-    // ── Floating ambient orbs ────────────────────────────────────────────────
-    val orb1 by inf.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(4000, easing = LinearEasing), RepeatMode.Reverse), label = "o1")
-    val orb2 by inf.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(5200, 900, LinearEasing), RepeatMode.Reverse), label = "o2")
-    val orb3 by inf.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(3700, 1800, LinearEasing), RepeatMode.Reverse), label = "o3")
-    val orb4 by inf.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(4600, 2500, LinearEasing), RepeatMode.Reverse), label = "o4")
+    // ── Icon glow pulse ───────────────────────────────────────────────────────
+    val glowA by inf.animateFloat(0.2f, 0.7f, infiniteRepeatable(tween(1500), RepeatMode.Reverse), "ga")
+    val glowS by inf.animateFloat(0.88f, 1.12f, infiniteRepeatable(tween(1500), RepeatMode.Reverse), "gs")
 
-    // ── Icon glow pulse ──────────────────────────────────────────────────────
-    val glowAlpha by inf.animateFloat(0.25f, 0.65f,
-        infiniteRepeatable(tween(1400), RepeatMode.Reverse), label = "glow")
-    val glowScale by inf.animateFloat(0.92f, 1.08f,
-        infiniteRepeatable(tween(1400), RepeatMode.Reverse), label = "glowS")
+    // ── Outer rotating arc ────────────────────────────────────────────────────
+    val arcAngle by inf.animateFloat(0f, 360f,
+        infiniteRepeatable(tween(2800, easing = LinearEasing)), "arc")
+    val arcAngle2 by inf.animateFloat(360f, 0f,
+        infiniteRepeatable(tween(4200, easing = LinearEasing)), "arc2")
 
-    // ── Shimmer highlight on icon ring ───────────────────────────────────────
-    val shimmer by inf.animateFloat(0f, 1f,
-        infiniteRepeatable(tween(2200, easing = LinearEasing), RepeatMode.Restart), label = "sh")
+    // ── Frame-clock for particle movement ─────────────────────────────────────
+    var frameMs by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) {
+        val t0 = withFrameMillis { it }
+        while (true) { withFrameMillis { frameMs = it - t0 } }
+    }
 
-    // ── Entrance animations (one-shot) ───────────────────────────────────────
+    // ── One-shot entrance animations ─────────────────────────────────────────
     val logoScale  = remember { Animatable(0f) }
     val titleAlpha = remember { Animatable(0f) }
-    val titleSlide = remember { Animatable(40f) }
+    val titleY     = remember { Animatable(48f) }
     val sub1Alpha  = remember { Animatable(0f) }
     val sub2Alpha  = remember { Animatable(0f) }
     val dotsAlpha  = remember { Animatable(0f) }
 
     LaunchedEffect(Unit) {
-        logoScale.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 180f))
-        titleSlide.animateTo(0f,  tween(380, easing = FastOutSlowInEasing))
-        titleAlpha.animateTo(1f,  tween(380))
-        sub1Alpha.animateTo(1f,   tween(300))
-        sub2Alpha.animateTo(1f,   tween(300))
-        dotsAlpha.animateTo(1f,   tween(500))
+        logoScale.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = 160f))
+        titleY.animateTo(0f, tween(420, easing = FastOutSlowInEasing))
+        titleAlpha.animateTo(1f, tween(420))
+        sub1Alpha.animateTo(1f, tween(340))
+        sub2Alpha.animateTo(1f, tween(320))
+        dotsAlpha.animateTo(1f, tween(500))
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.linearGradient(colors = listOf(bg1, bg2),
-                start = Offset.Zero, end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY))),
+            .background(
+                Brush.linearGradient(
+                    listOf(bg1, bg2),
+                    Offset.Zero,
+                    Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
 
-        // ── Background canvas: orbs + ripple rings ───────────────────────────
+        // ── Canvas layer: particles + ripple rings ────────────────────────────
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             val cx = size.width / 2f
             val cy = size.height / 2f
+            val t  = frameMs.toFloat()
 
-            // Ambient orbs
-            drawCircle(Color.White.copy(alpha = 0.055f), 230f,
-                Offset(size.width * 0.12f, size.height * 0.18f + orb1 * 50f))
-            drawCircle(Color.White.copy(alpha = 0.045f), 170f,
-                Offset(size.width * 0.88f, size.height * 0.25f - orb2 * 35f))
-            drawCircle(Color.White.copy(alpha = 0.07f),  120f,
-                Offset(size.width * 0.78f, size.height * 0.78f + orb3 * 28f))
-            drawCircle(Color.White.copy(alpha = 0.038f), 260f,
-                Offset(size.width * 0.08f, size.height * 0.82f - orb4 * 22f))
-            drawCircle(SplashTeal.copy(alpha = 0.12f),   90f,
-                Offset(size.width * 0.92f, size.height * 0.62f + orb1 * 18f))
-
-            // Ripple rings from icon centre
-            fun ripple(p: Float) {
+            // Moving particles
+            PARTICLES.forEach { p ->
+                var x = ((p.x0 + p.vx * t) % 1f + 1f) % 1f
+                var y = ((p.y0 + p.vy * t) % 1f + 1f) % 1f
+                val a = (p.baseAlpha * (0.65f + 0.35f * sin(t * 0.0018f + p.phase)))
+                    .coerceIn(0f, 1f)
                 drawCircle(
-                    color  = Color.White.copy(alpha = (1f - p) * 0.22f),
-                    radius = 90f + p * 280f,
-                    center = Offset(cx, cy),
-                    style  = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8f)
+                    color  = p.color.copy(alpha = a),
+                    radius = p.radiusDp * density,
+                    center = Offset(x * size.width, y * size.height)
                 )
             }
-            ripple(ring1); ripple(ring2); ripple(ring3)
+
+            // Ripple rings expanding from icon centre
+            fun ripple(progress: Float) = drawCircle(
+                color  = Color.White.copy(alpha = (1f - progress) * 0.18f),
+                radius = 80f + progress * 300f,
+                center = Offset(cx, cy),
+                style  = Stroke(1.6f)
+            )
+            ripple(r1); ripple(r2); ripple(r3)
         }
 
-        // ── Main content column ──────────────────────────────────────────────
+        // ── Main content ──────────────────────────────────────────────────────
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 32.dp)
@@ -138,131 +168,140 @@ fun SplashScreen() {
             // Icon cluster
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.size(148.dp)
+                modifier = Modifier.size(156.dp)
             ) {
-                // Outer glow disc
+                // Outer pulsing glow disc
                 Box(
                     modifier = Modifier
-                        .size(148.dp)
-                        .scale(glowScale)
+                        .size(156.dp)
+                        .scale(glowS)
+                        .background(
+                            Brush.radialGradient(listOf(Cyan.copy(glowA), Color.Transparent)),
+                            CircleShape
+                        )
+                )
+
+                // Rotating outer arc (fast)
+                androidx.compose.foundation.Canvas(Modifier.size(148.dp)) {
+                    drawArc(
+                        brush = Brush.sweepGradient(
+                            listOf(Color.Transparent, Cyan.copy(.9f), Color.Transparent),
+                            center
+                        ),
+                        startAngle = arcAngle,
+                        sweepAngle = 200f,
+                        useCenter  = false,
+                        style      = Stroke(3.5f, cap = StrokeCap.Round)
+                    )
+                }
+
+                // Rotating inner arc (slow, opposite direction)
+                androidx.compose.foundation.Canvas(Modifier.size(116.dp)) {
+                    drawArc(
+                        brush = Brush.sweepGradient(
+                            listOf(Color.Transparent, Pink.copy(.8f), Violet.copy(.5f), Color.Transparent),
+                            center
+                        ),
+                        startAngle = arcAngle2,
+                        sweepAngle = 160f,
+                        useCenter  = false,
+                        style      = Stroke(2.5f, cap = StrokeCap.Round)
+                    )
+                }
+
+                // Mid glow
+                Box(
+                    modifier = Modifier
+                        .size(108.dp)
                         .background(
                             Brush.radialGradient(
-                                colors = listOf(
-                                    SplashCyan.copy(alpha = glowAlpha),
-                                    Color.Transparent
-                                )
+                                listOf(Color.White.copy(.15f), Color.Transparent)
                             ),
                             CircleShape
                         )
                 )
-                // Mid glow disc
-                Box(
-                    modifier = Modifier
-                        .size(110.dp)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = 0.18f),
-                                    Color.Transparent
-                                )
-                            ),
-                            CircleShape
-                        )
-                )
-                // Icon circle with gradient border
+
+                // Icon circle — scale-in on entrance
                 Box(
                     modifier = Modifier
                         .size(96.dp)
                         .scale(logoScale.value)
                         .background(
                             Brush.linearGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = 0.20f),
-                                    Color.White.copy(alpha = 0.08f)
-                                )
+                                listOf(Color.White.copy(.22f), Color.White.copy(.07f))
                             ),
                             CircleShape
                         )
                         .border(
                             width = 2.dp,
                             brush = Brush.sweepGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = 0.9f),
-                                    SplashCyan.copy(alpha = 0.6f),
-                                    SplashPurple.copy(alpha = 0.4f),
-                                    Color.White.copy(alpha = 0.9f)
-                                ),
-                                center = Offset(shimmer, shimmer)
+                                listOf(
+                                    Color.White.copy(.95f), Cyan.copy(.7f),
+                                    Pink.copy(.6f), Violet.copy(.5f), Color.White.copy(.95f)
+                                )
                             ),
                             CircleShape
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.CloudDownload,
-                        contentDescription = null,
-                        modifier = Modifier.size(50.dp),
+                        Icons.Default.CloudDownload,
+                        null,
+                        Modifier.size(50.dp),
                         tint = Color.White
                     )
                 }
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(28.dp))
 
-            // App title
+            // Title
             Text(
-                text = "URL Downloader",
-                fontSize = 30.sp,
+                "URL Downloader",
+                fontSize   = 30.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
-                letterSpacing = 0.8.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
+                color      = Color.White,
+                letterSpacing = 0.6.sp,
+                textAlign  = TextAlign.Center,
+                modifier   = Modifier
                     .alpha(titleAlpha.value)
-                    .offset(y = titleSlide.value.dp)
+                    .offset(y = titleY.value.dp)
             )
 
             Spacer(Modifier.height(8.dp))
 
-            // Subtitle 1
             Text(
-                text = "Download anything from any URL",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.88f),
+                "Download any content from any URL",
+                style   = MaterialTheme.typography.bodyLarge,
+                color   = Color.White.copy(.85f),
                 textAlign = TextAlign.Center,
-                modifier = Modifier.alpha(sub1Alpha.value)
+                modifier  = Modifier.alpha(sub1Alpha.value)
             )
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(10.dp))
 
-            // Subtitle 2 – feature pill row
+            // Feature pills
             Row(
                 modifier = Modifier.alpha(sub2Alpha.value),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                listOf("Images", "Videos", "Audio", "Files").forEach { label ->
+                listOf("🎬 Video" to Blue, "🎵 Audio" to Cyan,
+                       "🖼 Image" to Violet, "📦 Files" to Pink).forEach { (lbl, col) ->
                     Box(
                         modifier = Modifier
-                            .background(
-                                Color.White.copy(alpha = 0.18f),
-                                RoundedCornerShape(20.dp)
-                            )
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .background(col.copy(.28f), RoundedCornerShape(20.dp))
+                            .border(1.dp, col.copy(.5f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 11.dp, vertical = 5.dp)
                     ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Text(lbl, style = MaterialTheme.typography.labelSmall,
+                            color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
 
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(52.dp))
 
-            // Loading dots
+            // Bouncing loading dots
             LoadingDots(modifier = Modifier.alpha(dotsAlpha.value))
         }
     }
@@ -273,29 +312,30 @@ private fun LoadingDots(modifier: Modifier = Modifier) {
     val inf = rememberInfiniteTransition(label = "dots")
 
     @Composable
-    fun dotAlpha(delay: Int) = inf.animateFloat(
-        initialValue = 0.25f,
-        targetValue  = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-            initialStartOffset = StartOffset(delay)
-        ),
-        label = "dot$delay"
-    ).value
+    fun dot(delay: Int, color: Color) {
+        val a by inf.animateFloat(
+            0.2f, 1f,
+            infiniteRepeatable(tween(560, easing = LinearEasing), RepeatMode.Reverse,
+                StartOffset(delay)),
+            "d$delay"
+        )
+        val s by inf.animateFloat(
+            0.7f, 1.2f,
+            infiniteRepeatable(tween(560, easing = LinearEasing), RepeatMode.Reverse,
+                StartOffset(delay)),
+            "ds$delay"
+        )
+        Box(
+            modifier = Modifier
+                .scale(s)
+                .size(9.dp)
+                .alpha(a)
+                .background(color, CircleShape)
+        )
+    }
 
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        listOf(0, 200, 400).forEach { delay ->
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .alpha(dotAlpha(delay))
-                    .background(Color.White, CircleShape)
-            )
-        }
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        dot(0, Cyan); dot(180, Pink); dot(360, Violet)
     }
 }

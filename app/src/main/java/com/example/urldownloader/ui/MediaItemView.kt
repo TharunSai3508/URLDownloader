@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -22,10 +23,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem as ExoMediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.ImageLoader
 import coil.compose.AsyncImage
@@ -37,8 +43,9 @@ import com.example.urldownloader.model.MediaItem
 import com.example.urldownloader.model.MediaType
 import com.example.urldownloader.ui.theme.AppColors
 import kotlinx.coroutines.delay
+import okhttp3.OkHttpClient
 
-// ── Card accent colour per type ───────────────────────────────────────────────
+// ── Per-type accent colour ────────────────────────────────────────────────────
 private fun typeAccent(type: MediaType): Color = when (type) {
     MediaType.IMAGE    -> Color(0xFF43A047)
     MediaType.GIF      -> Color(0xFFAB47BC)
@@ -50,7 +57,7 @@ private fun typeAccent(type: MediaType): Color = when (type) {
     MediaType.UNKNOWN  -> Color(0xFF607D8B)
 }
 
-private fun typeLabel(type: MediaType): String = when (type) {
+private fun typeLabel(type: MediaType) = when (type) {
     MediaType.IMAGE    -> "IMAGE"
     MediaType.GIF      -> "GIF"
     MediaType.VIDEO    -> "VIDEO"
@@ -71,6 +78,18 @@ private fun typeIcon(type: MediaType): ImageVector = when (type) {
     MediaType.UNKNOWN              -> Icons.Default.InsertDriveFile
 }
 
+// Shared OkHttpClient for ExoPlayer data source — reuse connections
+private val sharedOkHttp = OkHttpClient.Builder()
+    .followRedirects(true)
+    .addInterceptor { chain ->
+        chain.proceed(
+            chain.request().newBuilder()
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36")
+                .build()
+        )
+    }
+    .build()
+
 // ── Root card ─────────────────────────────────────────────────────────────────
 @Composable
 fun MediaItemView(media: MediaItem) {
@@ -83,16 +102,12 @@ fun MediaItemView(media: MediaItem) {
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column {
-            // Coloured top strip + badge
+            // Coloured accent strip at top
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(accent, accent.copy(alpha = 0.4f))
-                        )
-                    )
+                    .background(Brush.horizontalGradient(listOf(accent, accent.copy(.35f))))
             )
 
             Column(Modifier.padding(12.dp)) {
@@ -114,20 +129,18 @@ fun MediaItemView(media: MediaItem) {
 
                 Spacer(Modifier.height(10.dp))
 
-                // Content preview
+                // Content preview — all types auto-play where applicable
                 when (media.type) {
-                    MediaType.IMAGE                -> ImagePreview(media.url)
-                    MediaType.GIF                  -> GifPreview(media.url)
-                    MediaType.VIDEO                -> VideoPreview(media.url)
-                    MediaType.AUDIO                -> AudioPreview(media.url, accent)
-                    MediaType.PDF, MediaType.DOCUMENT,
-                    MediaType.ARCHIVE, MediaType.UNKNOWN ->
-                        FilePreview(typeIcon(media.type), typeLabel(media.type), accent, media.url)
+                    MediaType.IMAGE    -> ImagePreview(media.url)
+                    MediaType.GIF      -> GifPreview(media.url)
+                    MediaType.VIDEO    -> VideoPreview(media.url)
+                    MediaType.AUDIO    -> AudioPreview(media.url, accent)
+                    else               -> FilePreview(typeIcon(media.type), typeLabel(media.type), accent, media.url)
                 }
 
                 Spacer(Modifier.height(10.dp))
 
-                // URL chip
+                // URL line
                 Text(
                     media.url,
                     style    = MaterialTheme.typography.bodySmall,
@@ -138,24 +151,20 @@ fun MediaItemView(media: MediaItem) {
 
                 Spacer(Modifier.height(8.dp))
 
-                // Download button with accent gradient
+                // Accent-gradient download button
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(44.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(accent, accent.copy(alpha = 0.70f))
-                            )
-                        ),
+                        .background(Brush.horizontalGradient(listOf(accent, accent.copy(.65f)))),
                     contentAlignment = Alignment.Center
                 ) {
                     Button(
-                        onClick = { Downloader.download(context, media) },
-                        modifier = Modifier.fillMaxSize(),
-                        colors   = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                        elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp)
+                        onClick    = { Downloader.download(context, media) },
+                        modifier   = Modifier.fillMaxSize(),
+                        colors     = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                        elevation  = ButtonDefaults.buttonElevation(0.dp, 0.dp)
                     ) {
                         Icon(Icons.Default.Download, null, tint = Color.White,
                             modifier = Modifier.size(18.dp))
@@ -168,59 +177,70 @@ fun MediaItemView(media: MediaItem) {
     }
 }
 
-// ── Type badge ────────────────────────────────────────────────────────────────
+// ── Badge ─────────────────────────────────────────────────────────────────────
 @Composable
 private fun TypeBadge(type: MediaType, accent: Color) {
     Row(
         modifier = Modifier
-            .background(accent.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+            .background(accent.copy(.15f), RoundedCornerShape(6.dp))
             .padding(horizontal = 8.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(typeIcon(type), null, tint = accent, modifier = Modifier.size(13.dp))
         Spacer(Modifier.width(4.dp))
-        Text(
-            typeLabel(type),
-            style       = MaterialTheme.typography.labelSmall,
-            color       = accent,
-            fontWeight  = FontWeight.Bold
-        )
+        Text(typeLabel(type), style = MaterialTheme.typography.labelSmall,
+            color = accent, fontWeight = FontWeight.Bold)
     }
 }
 
-// ── Image preview ─────────────────────────────────────────────────────────────
+// ── IMAGE preview ─────────────────────────────────────────────────────────────
 @Composable
 private fun ImagePreview(url: String) {
-    val context = LocalContext.current
+    val context  = LocalContext.current
     var hasError by remember(url) { mutableStateOf(false) }
+    var loading  by remember(url) { mutableStateOf(true) }
 
-    if (hasError) {
-        FilePreview(Icons.Default.BrokenImage, "Image unavailable", AppColors.Green, url)
-        return
-    }
-
-    AsyncImage(
-        model = ImageRequest.Builder(context)
-            .data(url)
-            .crossfade(true)
-            .listener(onError = { _, _ -> hasError = true })
-            .build(),
-        contentDescription = null,
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 100.dp, max = 300.dp)
+            .heightIn(min = 120.dp, max = 300.dp)
             .clip(RoundedCornerShape(10.dp)),
-        contentScale = ContentScale.FillWidth
-    )
+        contentAlignment = Alignment.Center
+    ) {
+        if (!hasError) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(true)
+                    .listener(
+                        onSuccess = { _, _ -> loading = false },
+                        onError   = { _, _ -> hasError = true; loading = false }
+                    )
+                    .build(),
+                contentDescription = null,
+                modifier     = Modifier.fillMaxWidth(),
+                contentScale = ContentScale.FillWidth
+            )
+        }
+        if (loading && !hasError) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(32.dp),
+                color    = typeAccent(MediaType.IMAGE)
+            )
+        }
+        if (hasError) {
+            FilePreview(Icons.Default.BrokenImage, "Image unavailable", AppColors.Green, url)
+        }
+    }
 }
 
-// ── GIF preview (Coil GIF decoder — API 28+ uses ImageDecoder, older uses Movie) ──
+// ── GIF preview — animated via Coil ImageDecoder / GifDecoder ────────────────
 @Composable
 private fun GifPreview(url: String) {
-    val context     = LocalContext.current
+    val context  = LocalContext.current
     var hasError by remember(url) { mutableStateOf(false) }
+    var loading  by remember(url) { mutableStateOf(true) }
 
-    // Build a Coil ImageLoader that can decode animated GIFs
     val gifLoader = remember(context) {
         ImageLoader.Builder(context)
             .components {
@@ -230,39 +250,66 @@ private fun GifPreview(url: String) {
             .build()
     }
 
-    if (hasError) {
-        FilePreview(Icons.Default.BrokenImage, "GIF unavailable", AppColors.Purple, url)
-        return
-    }
-
-    AsyncImage(
-        model = ImageRequest.Builder(context)
-            .data(url)
-            .crossfade(false)          // keep false for GIF so frames don't fade
-            .listener(onError = { _, _ -> hasError = true })
-            .build(),
-        contentDescription = null,
-        imageLoader = gifLoader,
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 100.dp, max = 300.dp)
+            .heightIn(min = 120.dp, max = 300.dp)
             .clip(RoundedCornerShape(10.dp)),
-        contentScale = ContentScale.FillWidth
-    )
+        contentAlignment = Alignment.Center
+    ) {
+        if (!hasError) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(false)  // must be false — crossfade breaks GIF frames
+                    .listener(
+                        onSuccess = { _, _ -> loading = false },
+                        onError   = { _, _ -> hasError = true; loading = false }
+                    )
+                    .build(),
+                contentDescription = null,
+                imageLoader  = gifLoader,
+                modifier     = Modifier.fillMaxWidth(),
+                contentScale = ContentScale.FillWidth
+            )
+        }
+        if (loading && !hasError) {
+            CircularProgressIndicator(Modifier.size(32.dp), color = typeAccent(MediaType.GIF))
+        }
+        if (hasError) {
+            FilePreview(Icons.Default.BrokenImage, "GIF unavailable", AppColors.Purple, url)
+        }
+    }
 }
 
-// ── Video preview (ExoPlayer via AndroidView — HLS/MP4/WebM/MKV all supported) ──
+// ── VIDEO preview — ExoPlayer with auto-play (muted), HLS + DASH + MP4 ───────
 @Composable
 private fun VideoPreview(url: String) {
-    val context      = LocalContext.current
-    var hasError by remember(url) { mutableStateOf(false) }
+    val context   = LocalContext.current
+    var hasError  by remember(url) { mutableStateOf(false) }
+    var isMuted   by remember(url) { mutableStateOf(true) }
 
+    // Build ExoPlayer with OkHttp data source for better HTTP/HTTPS compat
     val exoPlayer = remember(url) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(ExoMediaItem.fromUri(url))
-            prepare()
-            playWhenReady = false
-        }
+        val dsFactory = OkHttpDataSource.Factory(sharedOkHttp)
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(dsFactory))
+            .build()
+            .apply {
+                setMediaItem(ExoMediaItem.fromUri(url))
+                // Audio focus: don't request focus when muted auto-playing
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .setUsage(C.USAGE_MEDIA)
+                        .build(),
+                    /* handleAudioFocus = */ false
+                )
+                volume        = 0f   // start muted (social-media style auto-play)
+                repeatMode    = Player.REPEAT_MODE_ONE
+                playWhenReady = true // ← AUTO-PLAY
+                prepare()
+            }
     }
 
     DisposableEffect(exoPlayer) {
@@ -270,10 +317,7 @@ private fun VideoPreview(url: String) {
             override fun onPlayerError(error: PlaybackException) { hasError = true }
         }
         exoPlayer.addListener(listener)
-        onDispose {
-            exoPlayer.removeListener(listener)
-            exoPlayer.release()
-        }
+        onDispose { exoPlayer.removeListener(listener); exoPlayer.release() }
     }
 
     if (hasError) {
@@ -281,41 +325,79 @@ private fun VideoPreview(url: String) {
         return
     }
 
-    AndroidView(
-        factory = { ctx ->
-            PlayerView(ctx).apply {
-                player        = exoPlayer
-                useController = true
-            }
-        },
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(224.dp)
+            .height(240.dp)
             .clip(RoundedCornerShape(10.dp))
-    )
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    player          = exoPlayer
+                    useController   = true
+                    resizeMode      = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Mute / unmute floating button (top-right corner)
+        IconButton(
+            onClick = {
+                isMuted = !isMuted
+                exoPlayer.volume = if (isMuted) 0f else 1f
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+                .size(32.dp)
+                .background(Color.Black.copy(.55f), CircleShape)
+        ) {
+            Icon(
+                if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                contentDescription = if (isMuted) "Unmute" else "Mute",
+                tint     = Color.White,
+                modifier = Modifier.size(17.dp)
+            )
+        }
+    }
 }
 
-// ── Audio preview — pure Compose player, no AndroidView ──────────────────────
+// ── AUDIO preview — pure Compose player, auto-plays, no AndroidView ──────────
 @Composable
 private fun AudioPreview(url: String, accent: Color) {
-    val context = LocalContext.current
+    val context    = LocalContext.current
 
-    var isPlaying by remember(url) { mutableStateOf(false) }
-    var progress  by remember(url) { mutableStateOf(0f) }
+    var isPlaying  by remember(url) { mutableStateOf(false) }
+    var progress   by remember(url) { mutableStateOf(0f) }
     var durationMs by remember(url) { mutableStateOf(0L) }
-    var hasError  by remember(url) { mutableStateOf(false) }
-    var isReady   by remember(url) { mutableStateOf(false) }
+    var hasError   by remember(url) { mutableStateOf(false) }
+    var isReady    by remember(url) { mutableStateOf(false) }
 
     val exoPlayer = remember(url) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(ExoMediaItem.fromUri(url))
-            prepare()
-        }
+        val dsFactory = OkHttpDataSource.Factory(sharedOkHttp)
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(dsFactory))
+            .build()
+            .apply {
+                setMediaItem(ExoMediaItem.fromUri(url))
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .setUsage(C.USAGE_MEDIA)
+                        .build(),
+                    /* handleAudioFocus = */ true
+                )
+                playWhenReady = true // ← AUTO-PLAY
+                prepare()
+            }
     }
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+            override fun onIsPlayingChanged(playing: Boolean)  { isPlaying = playing }
             override fun onPlayerError(error: PlaybackException) { hasError = true }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
@@ -325,13 +407,10 @@ private fun AudioPreview(url: String, accent: Color) {
             }
         }
         exoPlayer.addListener(listener)
-        onDispose {
-            exoPlayer.removeListener(listener)
-            exoPlayer.release()
-        }
+        onDispose { exoPlayer.removeListener(listener); exoPlayer.release() }
     }
 
-    // Poll position while playing
+    // Poll position every 200 ms while playing
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
             if (exoPlayer.duration > 0) {
@@ -347,38 +426,44 @@ private fun AudioPreview(url: String, accent: Color) {
         return
     }
 
-    // ── Audio card UI ─────────────────────────────────────────────────────────
+    // ── Audio player card ─────────────────────────────────────────────────────
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+            .background(
+                Brush.horizontalGradient(listOf(accent.copy(.18f), accent.copy(.06f))),
+                RoundedCornerShape(14.dp)
+            )
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Play / Pause button
         Box(
             modifier = Modifier
-                .size(48.dp)
-                .background(Brush.radialGradient(listOf(accent, accent.copy(.7f))), CircleShape),
+                .size(52.dp)
+                .background(
+                    Brush.radialGradient(listOf(accent, accent.copy(.6f))),
+                    CircleShape
+                ),
             contentAlignment = Alignment.Center
         ) {
             if (!isReady) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color    = Color.White,
-                    strokeWidth = 2.dp,
+                    modifier    = Modifier.size(26.dp),
+                    color       = Color.White,
+                    strokeWidth = 2.5.dp,
                     trackColor  = Color.Transparent
                 )
             } else {
                 IconButton(
-                    onClick = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                    onClick  = { if (isPlaying) exoPlayer.pause() else exoPlayer.play() },
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Icon(
                         if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint   = Color.White,
-                        modifier = Modifier.size(26.dp)
+                        contentDescription = null,
+                        tint     = Color.White,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }
@@ -387,9 +472,9 @@ private fun AudioPreview(url: String, accent: Color) {
         Spacer(Modifier.width(12.dp))
 
         Column(Modifier.weight(1f)) {
-            // Waveform (animated when playing) or slider (when paused)
+            // Animated waveform when playing, seeker when paused
             if (isPlaying) {
-                AnimatedWaveform(accent = accent)
+                AnimatedWaveform(accent)
             } else {
                 Slider(
                     value    = progress,
@@ -397,92 +482,79 @@ private fun AudioPreview(url: String, accent: Color) {
                         progress = p
                         exoPlayer.seekTo((p * durationMs).toLong())
                     },
-                    colors = SliderDefaults.colors(
+                    colors   = SliderDefaults.colors(
                         thumbColor       = accent,
                         activeTrackColor = accent
                     ),
-                    modifier = Modifier.fillMaxWidth().height(24.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(24.dp)
                 )
             }
-
             // Time labels
             Row(Modifier.fillMaxWidth()) {
-                Text(
-                    formatMs((progress * durationMs).toLong()),
+                Text(fmtMs((progress * durationMs).toLong()),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
+                    color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.weight(1f))
-                Text(
-                    formatMs(durationMs),
+                Text(fmtMs(durationMs),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
+                    color = MaterialTheme.colorScheme.outline)
             }
         }
     }
 }
 
-// Animated waveform bars — pure Compose, shown while audio is playing
+// Animated equalizer bars — pure Compose, no AndroidView
 @Composable
 private fun AnimatedWaveform(accent: Color) {
-    val inf = rememberInfiniteTransition(label = "wave")
+    val inf = rememberInfiniteTransition(label = "waveform")
 
     @Composable
-    fun bar(period: Int, delay: Int, minH: Float = 0.2f, maxH: Float = 1f) =
-        inf.animateFloat(
-            minH, maxH,
-            infiniteRepeatable(tween(period, delay, LinearEasing), RepeatMode.Reverse),
-            label = "bar${delay}"
-        ).value
+    fun bar(ms: Int, delay: Int, lo: Float = 0.15f, hi: Float = 1f) =
+        inf.animateFloat(lo, hi,
+            infiniteRepeatable(tween(ms, delay, LinearEasing), RepeatMode.Reverse),
+            "bar_${ms}_$delay").value
 
-    val h = listOf(
-        bar(380, 0),  bar(280, 60), bar(440, 120), bar(320, 80),
-        bar(500, 20), bar(260, 100), bar(400, 40), bar(340, 160),
-        bar(460, 200), bar(300, 50), bar(420, 130), bar(360, 90)
+    val bars = listOf(
+        bar(380, 0),   bar(260, 50),  bar(440, 110), bar(300, 80),
+        bar(500, 20),  bar(240, 95),  bar(420, 40),  bar(340, 160),
+        bar(460, 200), bar(290, 55),  bar(410, 130), bar(350, 85),
+        bar(470, 10),  bar(280, 70)
     )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(32.dp),
+            .height(34.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment     = Alignment.CenterVertically
     ) {
-        h.forEach { frac ->
+        bars.forEach { frac ->
             Box(
                 modifier = Modifier
                     .width(5.dp)
                     .fillMaxHeight(frac)
                     .clip(RoundedCornerShape(3.dp))
-                    .background(
-                        Brush.verticalGradient(listOf(accent, accent.copy(.4f)))
-                    )
+                    .background(Brush.verticalGradient(listOf(accent, accent.copy(.3f))))
             )
         }
     }
 }
 
-private fun formatMs(ms: Long): String {
+private fun fmtMs(ms: Long): String {
     val s = ms / 1000
     return "%d:%02d".format(s / 60, s % 60)
 }
 
-// ── Generic file-type card ────────────────────────────────────────────────────
+// ── Generic file / error card ─────────────────────────────────────────────────
 @Composable
-private fun FilePreview(
-    icon: ImageVector,
-    label: String,
-    iconColor: Color,
-    url: String
-) {
+private fun FilePreview(icon: ImageVector, label: String, iconColor: Color, url: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                Brush.horizontalGradient(
-                    listOf(iconColor.copy(.12f), iconColor.copy(.04f))
-                ),
+                Brush.horizontalGradient(listOf(iconColor.copy(.13f), iconColor.copy(.04f))),
                 RoundedCornerShape(10.dp)
             )
             .padding(horizontal = 16.dp, vertical = 18.dp),
@@ -493,7 +565,7 @@ private fun FilePreview(
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Text(
-                url.substringAfterLast('/').substringBefore('?').take(42),
+                url.substringAfterLast('/').substringBefore('?').take(44),
                 style    = MaterialTheme.typography.bodySmall,
                 color    = MaterialTheme.colorScheme.outline,
                 maxLines = 1,

@@ -32,8 +32,11 @@ import com.example.urldownloader.ui.theme.AppColors
 import com.example.urldownloader.viewmodel.MainViewModel
 import com.example.urldownloader.viewmodel.UiState
 
-// Gradient used across the app as the brand strip
+// ── Shared brand brushes ──────────────────────────────────────────────────────
 private val BrandGradient = Brush.horizontalGradient(
+    listOf(Color(0xFFFF006E), Color(0xFF9500FF), Color(0xFF3D5AFE), Color(0xFF00E5FF))
+)
+private val BrandGradientSoft = Brush.horizontalGradient(
     listOf(AppColors.Purple, AppColors.Blue, AppColors.Cyan)
 )
 
