@@ -1,27 +1,63 @@
-package com.example.urldownloader
+package com.example.urldownloader.download
 
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import android.widget.Toast
+import com.example.urldownloader.model.MediaItem
+import com.example.urldownloader.model.MediaType
 
 object Downloader {
 
-    fun download(context: Context, url: String) {
+    fun download(context: Context, media: MediaItem) {
+        val fileName = buildFileName(media)
+        runCatching {
+            val request = DownloadManager.Request(Uri.parse(media.url))
+                .setTitle(fileName)
+                .setDescription("Downloading via URL Downloader")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+                .setDestinationInExternalPublicDir(getDirectory(media.type), fileName)
+                .apply { media.mimeType?.let { setMimeType(it) } }
 
-        val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("Downloading")
-            .setNotificationVisibility(
-                DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-            )
-            .setDestinationInExternalPublicDir(
-                Environment.DIRECTORY_DOWNLOADS,
-                Uri.parse(url).lastPathSegment ?: "file"
-            )
+            val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            manager.enqueue(request)
+            Toast.makeText(context, "Downloading: $fileName", Toast.LENGTH_SHORT).show()
+        }.onFailure { e ->
+            Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
 
-        val manager =
-            context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    fun downloadAll(context: Context, items: List<MediaItem>) {
+        items.forEach { download(context, it) }
+        if (items.isNotEmpty()) {
+            Toast.makeText(context, "Queued ${items.size} download(s)", Toast.LENGTH_SHORT).show()
+        }
+    }
 
-        manager.enqueue(request)
+    private fun buildFileName(media: MediaItem): String {
+        val raw = Uri.parse(media.url).lastPathSegment ?: "file_${System.currentTimeMillis()}"
+        val name = raw.substringBefore('?').substringBefore('#')
+        return if ('.' in name) name else "$name${defaultExtension(media.type)}"
+    }
+
+    private fun defaultExtension(type: MediaType) = when (type) {
+        MediaType.IMAGE -> ".jpg"
+        MediaType.GIF -> ".gif"
+        MediaType.VIDEO -> ".mp4"
+        MediaType.AUDIO -> ".mp3"
+        MediaType.PDF -> ".pdf"
+        MediaType.DOCUMENT -> ".txt"
+        MediaType.ARCHIVE -> ".zip"
+        MediaType.UNKNOWN -> ""
+    }
+
+    private fun getDirectory(type: MediaType) = when (type) {
+        MediaType.IMAGE, MediaType.GIF -> Environment.DIRECTORY_PICTURES
+        MediaType.VIDEO -> Environment.DIRECTORY_MOVIES
+        MediaType.AUDIO -> Environment.DIRECTORY_MUSIC
+        else -> Environment.DIRECTORY_DOWNLOADS
     }
 }

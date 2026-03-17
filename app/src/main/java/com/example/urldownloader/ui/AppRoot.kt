@@ -1,6 +1,5 @@
 package com.example.urldownloader.ui
 
-
 import androidx.compose.runtime.*
 import kotlinx.coroutines.delay
 
@@ -10,9 +9,7 @@ fun AppRoot() {
     var showSplash by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-
-        delay(2000)
-
+        delay(1800)
         showSplash = false
     }
 
