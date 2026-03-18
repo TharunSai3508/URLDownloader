@@ -3,6 +3,8 @@ package com.example.urldownloader.ui
 import android.os.Build
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +56,8 @@ private fun typeAccent(type: MediaType): Color = when (type) {
     MediaType.PDF      -> Color(0xFFE53935)
     MediaType.DOCUMENT -> Color(0xFF1976D2)
     MediaType.ARCHIVE  -> Color(0xFFF57C00)
+    MediaType.SUBTITLE -> Color(0xFF00897B)
+    MediaType.EBOOK    -> Color(0xFF6D4C41)
     MediaType.UNKNOWN  -> Color(0xFF607D8B)
 }
 
@@ -65,6 +69,8 @@ private fun typeLabel(type: MediaType) = when (type) {
     MediaType.PDF      -> "PDF"
     MediaType.DOCUMENT -> "DOCUMENT"
     MediaType.ARCHIVE  -> "ARCHIVE"
+    MediaType.SUBTITLE -> "SUBTITLE"
+    MediaType.EBOOK    -> "EBOOK"
     MediaType.UNKNOWN  -> "FILE"
 }
 
@@ -75,6 +81,8 @@ private fun typeIcon(type: MediaType): ImageVector = when (type) {
     MediaType.PDF                  -> Icons.Default.PictureAsPdf
     MediaType.DOCUMENT             -> Icons.Default.Description
     MediaType.ARCHIVE              -> Icons.Default.FolderZip
+    MediaType.SUBTITLE             -> Icons.Default.ClosedCaption
+    MediaType.EBOOK                -> Icons.Default.MenuBook
     MediaType.UNKNOWN              -> Icons.Default.InsertDriveFile
 }
 
@@ -92,14 +100,32 @@ private val sharedOkHttp = OkHttpClient.Builder()
 
 // ── Root card ─────────────────────────────────────────────────────────────────
 @Composable
-fun MediaItemView(media: MediaItem) {
+fun MediaItemView(
+    media: MediaItem,
+    isSelected: Boolean = false,
+    onToggleSelect: () -> Unit = {}
+) {
     val context = LocalContext.current
     val accent  = typeAccent(media.type)
 
     Card(
-        modifier  = Modifier.fillMaxWidth(),
+        modifier  = Modifier
+            .fillMaxWidth()
+            .then(
+                if (isSelected) Modifier.border(
+                    2.dp,
+                    AppColors.Purple,
+                    RoundedCornerShape(16.dp)
+                ) else Modifier
+            ),
         shape     = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        colors    = CardDefaults.cardColors(
+            containerColor = if (isSelected)
+                AppColors.Purple.copy(.06f)
+            else
+                MaterialTheme.colorScheme.surface
+        )
     ) {
         Column {
             // Coloured accent strip at top
@@ -112,8 +138,31 @@ fun MediaItemView(media: MediaItem) {
 
             Column(Modifier.padding(12.dp)) {
 
-                // Badge row
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Badge row — tap checkbox area to toggle selection
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { onToggleSelect() }
+                ) {
+                    // Selection indicator
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .background(
+                                if (isSelected) AppColors.Purple else AppColors.Purple.copy(.12f),
+                                CircleShape
+                            )
+                            .border(1.5.dp,
+                                if (isSelected) AppColors.Purple else AppColors.Purple.copy(.35f),
+                                CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Icon(Icons.Default.Check, null,
+                                tint = Color.White,
+                                modifier = Modifier.size(13.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(6.dp))
                     TypeBadge(media.type, accent)
                     if (media.title.isNotEmpty()) {
                         Spacer(Modifier.width(8.dp))
@@ -125,6 +174,20 @@ fun MediaItemView(media: MediaItem) {
                             modifier = Modifier.weight(1f)
                         )
                     }
+                    // Platform tag
+                    if (!media.platform.isNullOrEmpty()) {
+                        Spacer(Modifier.width(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(MaterialTheme.colorScheme.surfaceVariant,
+                                    RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(media.platform.replaceFirstChar { it.uppercaseChar() },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -135,6 +198,10 @@ fun MediaItemView(media: MediaItem) {
                     MediaType.GIF      -> GifPreview(media.url)
                     MediaType.VIDEO    -> VideoPreview(media.url)
                     MediaType.AUDIO    -> AudioPreview(media.url, accent)
+                    MediaType.SUBTITLE -> FilePreview(Icons.Default.ClosedCaption,
+                        "SUBTITLE", accent, media.url)
+                    MediaType.EBOOK    -> FilePreview(Icons.Default.MenuBook,
+                        "EBOOK", accent, media.url)
                     else               -> FilePreview(typeIcon(media.type), typeLabel(media.type), accent, media.url)
                 }
 

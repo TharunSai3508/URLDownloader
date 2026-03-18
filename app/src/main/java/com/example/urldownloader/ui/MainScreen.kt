@@ -32,6 +32,8 @@ import com.example.urldownloader.ui.theme.AppColors
 import com.example.urldownloader.viewmodel.MainViewModel
 import com.example.urldownloader.viewmodel.UiState
 
+private enum class ViewMode { GRID, LIST }
+
 // ── Shared brand brushes ──────────────────────────────────────────────────────
 private val BrandGradient = Brush.horizontalGradient(
     listOf(Color(0xFFFF006E), Color(0xFF9500FF), Color(0xFF3D5AFE), Color(0xFF00E5FF))
@@ -44,10 +46,12 @@ private val BrandGradientSoft = Brush.horizontalGradient(
 @Composable
 fun MainScreen(vm: MainViewModel = viewModel()) {
 
-    val context   = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val uiState   by vm.uiState.collectAsStateWithLifecycle()
-    var url       by remember { mutableStateOf("") }
+    val context      = LocalContext.current
+    val clipboard    = LocalClipboardManager.current
+    val uiState      by vm.uiState.collectAsStateWithLifecycle()
+    val selectedUrls by vm.selectedUrls.collectAsStateWithLifecycle()
+    var url          by remember { mutableStateOf("") }
+    var viewMode     by remember { mutableStateOf(ViewMode.GRID) }
 
     // Handle shared-text intents
     val activity = context as? android.app.Activity
@@ -60,7 +64,6 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
 
     Scaffold(
         topBar = {
-            // Custom gradient top bar
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -73,20 +76,30 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 ) {
-                    Icon(
-                        Icons.Default.CloudDownload,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Icon(Icons.Default.CloudDownload, null,
+                        tint = Color.White, modifier = Modifier.size(24.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text(
-                        "URL Downloader",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
+                    Text("URL Downloader",
+                        color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
+            }
+        },
+        floatingActionButton = {
+            AnimatedVisibility(
+                visible = selectedUrls.isNotEmpty(),
+                enter   = scaleIn() + fadeIn(),
+                exit    = scaleOut() + fadeOut()
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = { vm.downloadSelected(context); vm.deselectAll() },
+                    containerColor = AppColors.Purple,
+                    contentColor   = Color.White,
+                    icon = { Icon(Icons.Default.DownloadForOffline, null) },
+                    text = {
+                        Text("Download ${selectedUrls.size} selected",
+                            fontWeight = FontWeight.SemiBold)
+                    }
+                )
             }
         }
     ) { padding ->
@@ -196,12 +209,12 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                         val activeFilter   = vm.getActiveFilter()
 
                         Column {
-                            // Header row
+                            // ── Header row ────────────────────────────────────
                             Row(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Count badge
+                                // Found count
                                 Box(
                                     modifier = Modifier
                                         .background(
@@ -218,9 +231,49 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                     )
                                 }
 
+                                // Selection badge
+                                if (selectedUrls.isNotEmpty()) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .background(AppColors.Purple, RoundedCornerShape(20.dp))
+                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("${selectedUrls.size} selected",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
                                 Spacer(Modifier.weight(1f))
 
-                                // Download all gradient button
+                                // Select All / Deselect All
+                                if (selectedUrls.isEmpty()) {
+                                    IconButton(onClick = { vm.selectAll() }) {
+                                        Icon(Icons.Default.SelectAll, "Select all",
+                                            tint = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                } else {
+                                    IconButton(onClick = { vm.deselectAll() }) {
+                                        Icon(Icons.Default.Deselect, "Deselect all",
+                                            tint = AppColors.Purple)
+                                    }
+                                }
+
+                                // Grid / List toggle
+                                IconButton(onClick = {
+                                    viewMode = if (viewMode == ViewMode.GRID) ViewMode.LIST
+                                               else ViewMode.GRID
+                                }) {
+                                    Icon(
+                                        if (viewMode == ViewMode.GRID) Icons.Default.ViewList
+                                        else Icons.Default.GridView,
+                                        contentDescription = "Toggle view",
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                // Download all button
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(10.dp))
@@ -232,43 +285,37 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
                                         colors = ButtonDefaults.filledTonalButtonColors(
                                             containerColor = Color.Transparent
                                         ),
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                     ) {
-                                        Icon(
-                                            Icons.Default.DownloadForOffline,
-                                            null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(17.dp)
-                                        )
-                                        Spacer(Modifier.width(5.dp))
-                                        Text(
-                                            "Download All",
-                                            color = Color.White,
+                                        Icon(Icons.Default.DownloadForOffline, null,
+                                            tint = Color.White, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("All", color = Color.White,
                                             style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
+                                            fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                             }
 
-                            // Filter chips
+                            // ── Filter chips ──────────────────────────────────
                             if (availableTypes.size > 1) {
                                 Spacer(Modifier.height(10.dp))
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     item {
                                         GradientFilterChip(
                                             selected = activeFilter == null,
-                                            label = "All",
+                                            label    = "All",
                                             gradient = BrandGradient,
-                                            onClick = { vm.setFilter(null) }
+                                            onClick  = { vm.setFilter(null) }
                                         )
                                     }
                                     items(availableTypes) { type ->
                                         GradientFilterChip(
                                             selected = activeFilter == type,
-                                            label = type.name.lowercase().replaceFirstChar { it.uppercaseChar() },
+                                            label    = type.name.lowercase()
+                                                .replaceFirstChar { it.uppercaseChar() },
                                             gradient = typeGradient(type),
-                                            onClick = { vm.setFilter(type) }
+                                            onClick  = { vm.setFilter(type) }
                                         )
                                     }
                                 }
@@ -276,11 +323,24 @@ fun MainScreen(vm: MainViewModel = viewModel()) {
 
                             Spacer(Modifier.height(10.dp))
 
-                            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(state.items, key = { it.url }) { media ->
-                                    MediaItemView(media)
+                            // ── Grid or List content ──────────────────────────
+                            if (viewMode == ViewMode.GRID) {
+                                MediaGrid(
+                                    items          = state.items,
+                                    selectedUrls   = selectedUrls,
+                                    onToggleSelect = { vm.toggleSelect(it) }
+                                )
+                            } else {
+                                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    items(state.items, key = { it.url }) { media ->
+                                        MediaItemView(
+                                            media          = media,
+                                            isSelected     = media.url in selectedUrls,
+                                            onToggleSelect = { vm.toggleSelect(media.url) }
+                                        )
+                                    }
+                                    item { Spacer(Modifier.height(96.dp)) }
                                 }
-                                item { Spacer(Modifier.height(24.dp)) }
                             }
                         }
                     }
@@ -341,6 +401,8 @@ private fun typeGradient(type: MediaType): Brush = Brush.horizontalGradient(
         MediaType.PDF      -> listOf(Color(0xFFC62828), Color(0xFFEF5350))
         MediaType.DOCUMENT -> listOf(Color(0xFF1976D2), Color(0xFF64B5F6))
         MediaType.ARCHIVE  -> listOf(Color(0xFFE65100), Color(0xFFFF8A65))
+        MediaType.SUBTITLE -> listOf(Color(0xFF00695C), Color(0xFF4DB6AC))
+        MediaType.EBOOK    -> listOf(Color(0xFF4E342E), Color(0xFF8D6E63))
         MediaType.UNKNOWN  -> listOf(Color(0xFF546E7A), Color(0xFF90A4AE))
     }
 )
