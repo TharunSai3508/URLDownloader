@@ -112,14 +112,16 @@ object PlatformExtractor {
             val postUrl  = postData.optString("url", "")
             val previewThumb = previewImage(postData)
 
-            // Reddit-hosted video (DASH preferred — has audio)
+            // Reddit-hosted video (DASH preferred for streaming; MP4 fallback for downloading)
             postData.optJSONObject("media")?.optJSONObject("reddit_video")?.let { rv ->
                 val dashUrl     = rv.optString("dash_url", "")
                 val fallbackUrl = rv.optString("fallback_url", "").replace("?source=fallback", "")
-                val videoUrl    = dashUrl.takeIf { it.isNotEmpty() } ?: fallbackUrl
-                if (videoUrl.isNotEmpty()) {
-                    results += MediaItem(videoUrl, MediaType.VIDEO, title,
-                        thumbnailUrl = previewThumb, platform = "reddit")
+                val streamUrl   = dashUrl.takeIf { it.isNotEmpty() } ?: fallbackUrl
+                val dlUrl       = fallbackUrl.takeIf { it.isNotEmpty() && it != streamUrl }
+                if (streamUrl.isNotEmpty()) {
+                    results += MediaItem(streamUrl, MediaType.VIDEO, title,
+                        thumbnailUrl = previewThumb, platform = "reddit",
+                        downloadUrl  = dlUrl)
                 }
             }
 

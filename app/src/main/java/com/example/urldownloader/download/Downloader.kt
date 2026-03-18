@@ -13,10 +13,33 @@ object Downloader {
     private const val UA = "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36"
 
+    // Platforms where we only have the page URL — direct download not possible
+    private val NO_DIRECT_DOWNLOAD = setOf(
+        "youtube", "tiktok", "instagram", "facebook",
+        "twitter", "dailymotion", "twitch", "pinterest", "vimeo"
+    )
+
     fun download(context: Context, media: MediaItem) {
-        val fileName = buildFileName(media)
+        // Block page-URL-only platform videos with a clear message
+        if (media.platform in NO_DIRECT_DOWNLOAD && media.type == MediaType.VIDEO
+            && media.downloadUrl == null) {
+            val name = media.platform?.replaceFirstChar { it.uppercaseChar() } ?: "This platform"
+            Toast.makeText(
+                context,
+                "$name videos cannot be downloaded directly. Use a dedicated downloader app.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        // Use explicit downloadUrl (e.g. Reddit MP4) or fall back to the media URL
+        val targetUrl = media.downloadUrl ?: media.url
+        val fileName  = buildFileName(media)
+        // Prefer explicit mimeType; otherwise derive from MediaType to ensure correct file handling
+        val mime      = media.mimeType ?: mimeFromType(media.type)
+
         runCatching {
-            val request = DownloadManager.Request(Uri.parse(media.url))
+            val request = DownloadManager.Request(Uri.parse(targetUrl))
                 .setTitle(fileName)
                 .setDescription("Downloading via URL Downloader")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -26,7 +49,7 @@ object Downloader {
                 .addRequestHeader("Accept", "*/*")
                 .addRequestHeader("Referer", "https://www.google.com/")
                 .setDestinationInExternalPublicDir(getDirectory(media.type), fileName)
-                .apply { media.mimeType?.let { setMimeType(it) } }
+                .apply { mime?.let { setMimeType(it) } }
 
             val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             manager.enqueue(request)
@@ -47,6 +70,19 @@ object Downloader {
         val raw  = Uri.parse(media.url).lastPathSegment ?: "file_${System.currentTimeMillis()}"
         val name = raw.substringBefore('?').substringBefore('#')
         return if ('.' in name) name else "$name${defaultExtension(media.type)}"
+    }
+
+    private fun mimeFromType(type: MediaType): String? = when (type) {
+        MediaType.IMAGE    -> "image/jpeg"
+        MediaType.GIF      -> "image/gif"
+        MediaType.VIDEO    -> "video/mp4"
+        MediaType.AUDIO    -> "audio/mpeg"
+        MediaType.PDF      -> "application/pdf"
+        MediaType.DOCUMENT -> "application/octet-stream"
+        MediaType.ARCHIVE  -> "application/zip"
+        MediaType.SUBTITLE -> "text/plain"
+        MediaType.EBOOK    -> "application/epub+zip"
+        MediaType.UNKNOWN  -> null
     }
 
     private fun defaultExtension(type: MediaType) = when (type) {

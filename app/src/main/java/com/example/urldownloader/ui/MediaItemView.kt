@@ -196,7 +196,7 @@ fun MediaItemView(
                 when (media.type) {
                     MediaType.IMAGE    -> ImagePreview(media.url)
                     MediaType.GIF      -> GifPreview(media.url)
-                    MediaType.VIDEO    -> VideoPreview(media.url)
+                    MediaType.VIDEO    -> VideoPreview(media)
                     MediaType.AUDIO    -> AudioPreview(media.url, accent)
                     MediaType.SUBTITLE -> FilePreview(Icons.Default.ClosedCaption,
                         "SUBTITLE", accent, media.url)
@@ -349,9 +349,78 @@ private fun GifPreview(url: String) {
     }
 }
 
-// ── VIDEO preview — ExoPlayer with auto-play (muted), HLS + DASH + MP4 ───────
+// Platforms whose URLs are web pages — ExoPlayer cannot stream them directly.
+// Show a static thumbnail card with a play-icon overlay instead.
+private val PAGE_ONLY_PLATFORMS = setOf(
+    "youtube", "tiktok", "instagram", "facebook",
+    "twitter", "dailymotion", "twitch", "pinterest", "vimeo"
+)
+
+// ── VIDEO preview — routes to thumbnail card or ExoPlayer depending on platform
 @Composable
-private fun VideoPreview(url: String) {
+private fun VideoPreview(media: MediaItem) {
+    if (media.platform in PAGE_ONLY_PLATFORMS) {
+        ThumbnailVideoCard(media)
+    } else {
+        ExoVideoPreview(media.url)
+    }
+}
+
+// ── Static thumbnail card for platform videos (YouTube, TikTok, etc.) ─────────
+@Composable
+private fun ThumbnailVideoCard(media: MediaItem) {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF1A1A1A))
+    ) {
+        if (media.thumbnailUrl != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(media.thumbnailUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                modifier     = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                alpha        = 0.8f
+            )
+        }
+
+        // Centre play icon
+        Icon(
+            Icons.Default.PlayCircle,
+            contentDescription = null,
+            tint     = Color.White.copy(.92f),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(60.dp)
+        )
+
+        // Platform label bottom-left
+        val platformLabel = media.platform?.replaceFirstChar { it.uppercaseChar() } ?: "Video"
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(8.dp)
+                .background(Color.Black.copy(.65f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            Text(
+                "$platformLabel · preview only",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+    }
+}
+
+// ── ExoPlayer video preview — for direct streamable URLs ─────────────────────
+@Composable
+private fun ExoVideoPreview(url: String) {
     val context   = LocalContext.current
     var hasError  by remember(url) { mutableStateOf(false) }
     var isMuted   by remember(url) { mutableStateOf(true) }

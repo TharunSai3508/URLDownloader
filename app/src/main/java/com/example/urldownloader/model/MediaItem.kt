@@ -26,5 +26,11 @@ data class MediaItem(
     /** Explicit pixel width from HTML/API (0 = unknown) */
     val width: Int = 0,
     /** Explicit pixel height from HTML/API (0 = unknown) */
-    val height: Int = 0
+    val height: Int = 0,
+    /**
+     * Separate URL to use when downloading (vs. the streaming/page URL in [url]).
+     * Example: Reddit DASH manifest in [url] for ExoPlayer, direct MP4 here for DownloadManager.
+     * Null means [url] is used for both streaming and downloading.
+     */
+    val downloadUrl: String? = null
 )
