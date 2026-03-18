@@ -1,7 +1,9 @@
 package com.example.urldownloader.download
 
 import android.app.DownloadManager
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.widget.Toast
@@ -19,16 +21,15 @@ object Downloader {
         "twitter", "dailymotion", "twitch", "pinterest", "vimeo"
     )
 
+    fun canDirectDownload(media: MediaItem): Boolean =
+        !(media.platform in NO_DIRECT_DOWNLOAD && media.type == MediaType.VIDEO && media.downloadUrl == null)
+
+    fun primaryActionLabel(media: MediaItem): String =
+        if (canDirectDownload(media)) "Download" else "Open Source"
+
     fun download(context: Context, media: MediaItem) {
-        // Block page-URL-only platform videos with a clear message
-        if (media.platform in NO_DIRECT_DOWNLOAD && media.type == MediaType.VIDEO
-            && media.downloadUrl == null) {
-            val name = media.platform?.replaceFirstChar { it.uppercaseChar() } ?: "This platform"
-            Toast.makeText(
-                context,
-                "$name videos cannot be downloaded directly. Use a dedicated downloader app.",
-                Toast.LENGTH_LONG
-            ).show()
+        if (!canDirectDownload(media)) {
+            openSource(context, media)
             return
         }
 
@@ -61,8 +62,31 @@ object Downloader {
 
     fun downloadAll(context: Context, items: List<MediaItem>) {
         items.forEach { download(context, it) }
-        if (items.isNotEmpty()) {
-            Toast.makeText(context, "Queued ${items.size} download(s)", Toast.LENGTH_SHORT).show()
+        val directCount = items.count { canDirectDownload(it) }
+        if (directCount > 0) {
+            Toast.makeText(context, "Queued $directCount download(s)", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openSource(context: Context, media: MediaItem) {
+        val name = media.platform?.replaceFirstChar { it.uppercaseChar() } ?: "This platform"
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(media.url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching {
+            context.startActivity(intent)
+            Toast.makeText(
+                context,
+                "$name videos need the original page or app; direct download is not available here.",
+                Toast.LENGTH_LONG
+            ).show()
+        }.onFailure {
+            val message = if (it is ActivityNotFoundException) {
+                "No app available to open the source URL."
+            } else {
+                "Unable to open the source URL: ${it.message}"
+            }
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         }
     }
 

@@ -1,6 +1,11 @@
 package com.example.urldownloader.ui
 
+import android.annotation.SuppressLint
 import android.os.Build
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -233,10 +238,22 @@ fun MediaItemView(
                         colors     = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                         elevation  = ButtonDefaults.buttonElevation(0.dp, 0.dp)
                     ) {
-                        Icon(Icons.Default.Download, null, tint = Color.White,
-                            modifier = Modifier.size(18.dp))
+                        Icon(
+                            if (Downloader.canDirectDownload(media)) {
+                                Icons.Default.Download
+                            } else {
+                                Icons.Default.OpenInBrowser
+                            },
+                            null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
                         Spacer(Modifier.width(6.dp))
-                        Text("Download", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            Downloader.primaryActionLabel(media),
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
             }
@@ -359,14 +376,88 @@ private val PAGE_ONLY_PLATFORMS = setOf(
 // ── VIDEO preview — routes to thumbnail card or ExoPlayer depending on platform
 @Composable
 private fun VideoPreview(media: MediaItem) {
-    if (media.platform in PAGE_ONLY_PLATFORMS) {
-        ThumbnailVideoCard(media)
-    } else {
-        ExoVideoPreview(media.url)
+    when {
+        media.platform == "youtube" -> YouTubeVideoPreview(media)
+        media.platform in PAGE_ONLY_PLATFORMS -> ThumbnailVideoCard(media)
+        else -> ExoVideoPreview(media.url)
     }
 }
 
-// ── Static thumbnail card for platform videos (YouTube, TikTok, etc.) ─────────
+// ── YouTube preview — use an embedded player instead of trying ExoPlayer on a page URL ──
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun YouTubeVideoPreview(media: MediaItem) {
+    val videoId = remember(media.url) {
+        Regex("""(?:youtube\.com/watch\?.*v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})""")
+            .find(media.url)
+            ?.groupValues
+            ?.getOrNull(1)
+    }
+
+    if (videoId == null) {
+        ThumbnailVideoCard(media)
+        return
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.Black)
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.mediaPlaybackRequiresUserGesture = false
+                    settings.cacheMode = WebSettings.LOAD_DEFAULT
+                    webChromeClient = WebChromeClient()
+                    webViewClient = object : WebViewClient() {}
+                    loadDataWithBaseURL(
+                        "https://www.youtube.com",
+                        """
+                        <html>
+                          <body style="margin:0;background:black;">
+                            <iframe
+                              width="100%"
+                              height="100%"
+                              src="https://www.youtube.com/embed/$videoId?playsinline=1&modestbranding=1&rel=0"
+                              title="YouTube video preview"
+                              frameborder="0"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                              allowfullscreen>
+                            </iframe>
+                          </body>
+                        </html>
+                        """.trimIndent(),
+                        "text/html",
+                        "utf-8",
+                        null
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(8.dp)
+                .background(Color.Black.copy(.65f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            Text(
+                "YouTube preview · direct download unavailable",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+    }
+}
+
+// ── Static thumbnail card for platform videos (TikTok, Instagram, etc.) ──────
 @Composable
 private fun ThumbnailVideoCard(media: MediaItem) {
     val context = LocalContext.current
