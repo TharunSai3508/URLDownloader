@@ -67,8 +67,18 @@ object Downloader {
     }
 
     private fun buildFileName(media: MediaItem): String {
-        val raw  = Uri.parse(media.url).lastPathSegment ?: "file_${System.currentTimeMillis()}"
-        val name = raw.substringBefore('?').substringBefore('#')
+        val source = media.downloadUrl ?: media.url
+        val titleCandidate = media.title
+            .replace(Regex("""[^A-Za-z0-9._ -]"""), "_")
+            .trim()
+            .takeIf { it.isNotBlank() }
+        val raw = Uri.parse(source).lastPathSegment
+            ?.substringBefore('?')
+            ?.substringBefore('#')
+            ?.takeIf { it.isNotBlank() }
+            ?: titleCandidate
+            ?: "file_${System.currentTimeMillis()}"
+        val name = raw.take(80).trim().ifBlank { "file_${System.currentTimeMillis()}" }
         return if ('.' in name) name else "$name${defaultExtension(media.type)}"
     }
 
