@@ -36,7 +36,7 @@ class MainViewModel : ViewModel() {
     // ── Analysis ──────────────────────────────────────────────────────────────
 
     fun analyze(url: String) {
-        if (url.isBlank()) return
+        if (MediaExtractor.resolveInput(url) == null) return
         _selectedUrls.value = emptySet()
         viewModelScope.launch {
             _uiState.value = UiState.Loading
